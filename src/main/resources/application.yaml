@@ -40,6 +40,11 @@ spring:
               predicates:
                 - Path=/auth/**
 
+            - id: producer-service
+              uri: http://producer:8080
+              predicates:
+                - Path=/producer/**
+
 management:
   endpoints:
     web:
