@@ -1,14 +1,17 @@
 package store.gateway.security;
 
+import java.time.Duration;
 import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpCookie;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Component;
@@ -21,13 +24,25 @@ import reactor.core.publisher.Mono;
 @Component
 public class AuthorizationFilter implements GlobalFilter {
 
-    private static Logger logger = LoggerFactory.getLogger(AuthorizationFilter.class);
+    private static final Logger logger = LoggerFactory.getLogger(AuthorizationFilter.class);
 
-    public static String AUTH_COOKIE_TOKEN = "__store_jwt_token";
-    public static String AUTH_SERVICE_TOKEN_SOLVE = "http://auth:8080/auth/solve";
+    public static final String AUTH_COOKIE_TOKEN = "__store_jwt_token";
+    public static final String AUTH_SERVICE_URL = "http://auth:8080";
+    public static final String AUTH_SERVICE_TOKEN_SOLVE = "/auth/solve";
+    private static final Duration AUTH_TIMEOUT = Duration.ofSeconds(3);
 
-    @Autowired
-    private RouterValidator routerValidator;
+    private final RouterValidator routerValidator;
+
+    // built once and reused by every request: the client is thread-safe
+    private final WebClient authClient;
+
+    public AuthorizationFilter(RouterValidator routerValidator, WebClient.Builder builder) {
+        this.routerValidator = routerValidator;
+        this.authClient = builder
+            .baseUrl(AUTH_SERVICE_URL)
+            .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+            .build();
+    }
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
@@ -41,20 +56,14 @@ public class AuthorizationFilter implements GlobalFilter {
             return chain.filter(exchange);
         }
 
-        // route is not open
-        // check if the cookie exists
-        if (request.getCookies().containsKey(AUTH_COOKIE_TOKEN)) {
-            logger.debug("I got the cookie");
-            // get cookie valuw that is the jwt
-            String token = request.getCookies().getFirst(AUTH_COOKIE_TOKEN).getValue();
-            if (null != token && token.length() > 0) {
-                logger.debug("Cookie is not empty");
-                return requestAuthTokenSolve(exchange, chain, token.trim());
-            }
+        // route is not open: the cookie with the jwt is required
+        final HttpCookie cookie = request.getCookies().getFirst(AUTH_COOKIE_TOKEN);
+        if (cookie == null || cookie.getValue().isBlank()) {
+            return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED));
         }
 
-        // error by default
-        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        logger.debug("I got the cookie");
+        return requestAuthTokenSolve(exchange, chain, cookie.getValue().trim());
     }
 
     private Mono<Void> requestAuthTokenSolve(
@@ -62,36 +71,29 @@ public class AuthorizationFilter implements GlobalFilter {
         GatewayFilterChain chain,
         final String jwt) {
 
-        return WebClient.builder()
-            .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-            .build()
-            .post()
+        return authClient.post()
             .uri(AUTH_SERVICE_TOKEN_SOLVE)
             .bodyValue(Map.of("token", jwt))
             .retrieve()
-            .toEntity(Map.class)
-            .flatMap(response -> {
-                if (response != null && response.hasBody() && response.getBody() != null) {
-                    final Map<String, String> map = response.getBody();
-                    logger.debug(map.toString());
-                    String idAccount = map.get("idAccount");
-                    logger.debug("header before update: " + exchange.getRequest().getHeaders().toString());
-                    ServerWebExchange authorized = updateRequest(exchange, idAccount, jwt);
-                    logger.debug("header after update: " + authorized.getRequest().getHeaders().toString());
-                    return chain.filter(authorized);
-                } else {
-                    throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token");
-                }
+            // an invalid or expired token is a 401, not a 500
+            .onStatus(HttpStatusCode::is4xxClientError,
+                response -> Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token")))
+            .bodyToMono(new ParameterizedTypeReference<Map<String, String>>() {})
+            // a hung auth service must not hold requests in the gateway forever
+            .timeout(AUTH_TIMEOUT)
+            .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token")))
+            .flatMap(map -> {
+                logger.debug(map.toString());
+                return chain.filter(updateRequest(exchange, map.get("idAccount")));
             });
     }
 
-    private ServerWebExchange updateRequest(ServerWebExchange exchange, String idAccount, String jwt) {
+    private ServerWebExchange updateRequest(ServerWebExchange exchange, String idAccount) {
         return exchange.mutate()
             .request(
                 exchange.getRequest()
                     .mutate()
                     .header("id-account", idAccount)
-                    // .header("Authorization", "Bearer " + jwt)
                     .build()
             ).build();
     }

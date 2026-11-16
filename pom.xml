@@ -35,6 +35,12 @@
 			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
 
+		<!-- shared WebClient.Builder (metrics, tracing, managed Netty resources) -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webclient</artifactId>
+		</dependency>
+
 		<!-- export in prometheus format -->
 		<dependency>
 			<groupId>io.micrometer</groupId>
