@@ -8,12 +8,11 @@ spring:
       metrics:
         enabled: true
 
-      default-filters:
-        - RemoveRequestHeader=id-account
-        - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
-
       server:
         webflux:
+
+          default-filters:
+            - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
 
           globalcors:
             corsConfigurations:
@@ -39,6 +38,11 @@ spring:
               uri: http://auth:8080
               predicates:
                 - Path=/auth/**
+
+            - id: exchange-service
+              uri: http://exchange:8000
+              predicates:
+                - Path=/exchanges/**
 
             - id: producer-service
               uri: http://producer:8080

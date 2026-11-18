@@ -53,7 +53,9 @@ public class AuthorizationFilter implements GlobalFilter {
         // check if the route is open
         if (!routerValidator.isSecured.test(request)) {
             logger.debug("this route is open");
-            return chain.filter(exchange);
+            return chain.filter(exchange.mutate()
+                .request(request.mutate().headers(headers -> headers.remove("id-account")).build())
+                .build());
         }
 
         // route is not open: the cookie with the jwt is required
@@ -83,8 +85,11 @@ public class AuthorizationFilter implements GlobalFilter {
             .timeout(AUTH_TIMEOUT)
             .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token")))
             .flatMap(map -> {
-                logger.debug(map.toString());
-                return chain.filter(updateRequest(exchange, map.get("idAccount")));
+                String idAccount = map.get("idAccount");
+                if (idAccount == null || idAccount.isBlank()) {
+                    return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token"));
+                }
+                return chain.filter(updateRequest(exchange, idAccount));
             });
     }
 
@@ -93,7 +98,7 @@ public class AuthorizationFilter implements GlobalFilter {
             .request(
                 exchange.getRequest()
                     .mutate()
-                    .header("id-account", idAccount)
+                    .headers(headers -> headers.set("id-account", idAccount))
                     .build()
             ).build();
     }
