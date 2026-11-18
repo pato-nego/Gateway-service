@@ -1,5 +1,7 @@
 package store.gateway.security;
 
+import static org.springframework.cloud.gateway.support.ServerWebExchangeUtils.GATEWAY_ROUTE_ATTR;
+
 import java.time.Duration;
 import java.util.Map;
 
@@ -7,9 +9,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
+import org.springframework.cloud.gateway.route.Route;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpCookie;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
@@ -89,8 +93,29 @@ public class AuthorizationFilter implements GlobalFilter {
                 if (idAccount == null || idAccount.isBlank()) {
                     return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token"));
                 }
+                if (!canAccessAccount(exchange, idAccount)) {
+                    return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN));
+                }
                 return chain.filter(updateRequest(exchange, idAccount));
             });
+    }
+
+    private boolean canAccessAccount(ServerWebExchange exchange, String idAccount) {
+        Route route = exchange.getRequiredAttribute(GATEWAY_ROUTE_ATTR);
+        if (!"account-service".equals(route.getId())) {
+            return true;
+        }
+
+        ServerHttpRequest request = exchange.getRequest();
+        HttpMethod method = request.getMethod();
+        boolean read = HttpMethod.GET.equals(method) || HttpMethod.HEAD.equals(method);
+        if (!read && !HttpMethod.DELETE.equals(method)) {
+            return true;
+        }
+
+        String path = request.getPath().pathWithinApplication().value();
+        return path.equals("/accounts/" + idAccount)
+            || (read && path.equals("/accounts/health-check"));
     }
 
     private ServerWebExchange updateRequest(ServerWebExchange exchange, String idAccount) {
