@@ -42,7 +42,7 @@ spring:
             - id: exchange-service
               uri: http://exchange:8000
               predicates:
-                - Path=/exchanges/**
+                - Path=/exchange/**,/exchanges/**
 
 management:
   endpoints:
