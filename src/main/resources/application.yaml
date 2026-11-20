@@ -30,7 +30,7 @@ spring:
                 - Path=/insper/**
 
             - id: account-service
-              uri: http://account:8080
+              uri: ${ACCOUNT_URL:http://account:8080}
               predicates:
                 - Path=/accounts/**
 
