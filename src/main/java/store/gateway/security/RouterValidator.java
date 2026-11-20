@@ -12,13 +12,14 @@ public class RouterValidator {
     private List<String> openApiEndpoints = List.of(
             "POST /auth/register",
             "GET /auth/logout",
-            "POST /auth/login"
+            "POST /auth/login",
+            "GET /exchange/health-check"
         );
 
     public Predicate<ServerHttpRequest> isSecured = request -> openApiEndpoints
             .stream()
             .noneMatch(uri -> {
-                String[] parts = uri.replaceAll("[^a-zA-Z0-9// *]", "").split(" ");
+                String[] parts = uri.split(" ", 2);
                 final String method = parts[0];
                 final String path = parts[1];
                 final boolean deep = path.endsWith("/**");

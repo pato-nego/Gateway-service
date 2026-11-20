@@ -44,6 +44,16 @@ spring:
               predicates:
                 - Path=/exchange/**,/exchanges/**
 
+            - id: product-service
+              uri: ${PRODUCT_URL:http://product:8080}
+              predicates:
+                - Path=/products,/products/**
+
+            - id: order-service
+              uri: ${ORDER_URL:http://order:8080}
+              predicates:
+                - Path=/orders,/orders/**
+
 management:
   endpoints:
     web:
