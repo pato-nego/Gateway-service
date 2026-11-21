@@ -3,6 +3,7 @@ kind: ConfigMap
 metadata:
   name: gateway-config
 data:
+  MANAGEMENT_SERVER_PORT: "9090"
   SERVER_SSL_ENABLED: 'true'
   SERVER_SSL_CERTIFICATE: /etc/gateway/tls/tls.crt
   SERVER_SSL_CERTIFICATE_PRIVATE_KEY: /etc/gateway/tls/tls.key
